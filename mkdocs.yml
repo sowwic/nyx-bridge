@@ -1,0 +1,31 @@
+site_name: nyx-bridge Documentation
+site_description: TCP bridge between Nyx and external processes
+site_author: Dmitrii Shevchenko
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocs-autoapi:
+      autoapi_dir: "src/nyx_bridge"
+      autoapi_file_patterns:
+        - "*.py"
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["src/nyx_bridge"]
+          options:
+            docstring_style: google
+            show_signature: true
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_object_full_path: false
+            show_category_heading: true
+            merge_init_into_class: true
+            show_if_no_docstring: true
+  - autorefs
+
+nav:
+  - User Guide: user/index.md
+  - Developer Guide: dev/index.md
