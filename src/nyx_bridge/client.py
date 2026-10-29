@@ -1,6 +1,6 @@
 """Base client connecting an application to a running Nyx.
 
-Standard library only and written for old Pythons: clients live inside other
+Standard library only, for Python 3.11+: clients live inside other
 applications (DCCs) that install this package without Nyx or Qt.
 
 Subclass `NyxClient` for an application: fill `default_namespace` (e.g. with `bpy`)

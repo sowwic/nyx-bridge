@@ -322,7 +322,7 @@ class BridgeServer:
         """str: server with its name and address."""
         return f"{type(self).__name__}({self.name!r}, {self.host}:{self.port})"
 
-    def __enter__(self) -> BridgeServer:
+    def __enter__(self) -> typing.Self:
         """Start the server."""
         self.start()
         return self

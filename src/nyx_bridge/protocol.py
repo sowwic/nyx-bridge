@@ -1,6 +1,6 @@
 """Wire protocol shared by the Nyx bridge server and its clients.
 
-Standard library only and written for old Pythons: clients living in other
+Standard library only, for Python 3.11+: clients living in other
 applications (DCCs) install this package, so it must have no dependencies.
 
 Messages are JSON objects with a ``type`` key, sent over TCP with a 4-byte big-endian
@@ -98,7 +98,7 @@ def recv_message(sock: socket.socket) -> dict:
     Raises:
         ConnectionClosed: connection closed or broken.
         ProtocolError: invalid frame, size or payload.
-        socket.timeout: socket timeout expired (on Python 3.10+ this is `TimeoutError`).
+        TimeoutError: socket timeout expired.
 
     Returns:
         dict: message.
@@ -134,7 +134,7 @@ def _recv_exact(sock: socket.socket, size: int) -> bytes:
     while remaining:
         try:
             chunk = sock.recv(min(remaining, 1 << 20))
-        except socket.timeout:  # noqa: UP041  (only an alias of TimeoutError on 3.10+)
+        except TimeoutError:
             raise
         except OSError as err:
             raise ConnectionClosed(str(err)) from err

@@ -7,7 +7,7 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = []
 
 [build-system]
@@ -16,19 +16,19 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
-    "pytest-cov>=6.0.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.0.0",
     "ruff",
-    "mkdocs (>=1.6.1,<2.0.0); python_full_version >= '3.11'",
-    "mkdocs-material (>=9.7.0,<10.0.0); python_full_version >= '3.11'",
-    "mkdocstrings[python] (>=1.0.0,<2.0.0); python_full_version >= '3.11'",
-    "mkdocs-autorefs (>=1.4.3,<2.0.0); python_full_version >= '3.11'",
-    "mkdocs-autoapi (>=0.4.1,<0.5.0); python_full_version >= '3.11'",
+    "mkdocs (>=1.6.1,<2.0.0)",
+    "mkdocs-material (>=9.7.0,<10.0.0)",
+    "mkdocstrings[python] (>=1.0.0,<2.0.0)",
+    "mkdocs-autorefs (>=1.4.3,<2.0.0)",
+    "mkdocs-autoapi (>=0.4.1,<0.5.0)",
 ]
 
 [tool.ruff]
 src = ["src"]
-target-version = "py39"
+target-version = "py311"
 show-fixes = true
 line-length = 89
 lint.select = [

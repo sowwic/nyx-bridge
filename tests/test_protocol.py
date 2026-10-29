@@ -164,9 +164,9 @@ def test_find_server_address_prefers_arguments_then_environment(monkeypatch, tmp
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda path: path.name)
-def test_source_files_parse_as_python_3_9(path):
-    """The client side is installed into applications running older Pythons."""
-    ast.parse(path.read_text(), feature_version=(3, 9))
+def test_source_files_parse_as_python_3_11(path):
+    """The client side is installed into applications running Maya's Python (3.11)."""
+    ast.parse(path.read_text(), feature_version=(3, 11))
 
 
 def test_package_imports_without_pyside_or_nyx():
