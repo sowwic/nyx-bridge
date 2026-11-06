@@ -220,7 +220,7 @@ def test_package_imports_without_pyside_or_nyx():
         "sys.modules['PySide6'] = None\n"
         "sys.modules['shiboken6'] = None\n"
         f"sys.path.insert(0, {str(BRIDGE_DIR.parent.parent)!r})\n"
-        "import nyx_bridge.protocol, nyx_bridge.client, nyx_bridge.manager\n"
+        "import nyx_bridge.protocol, nyx_bridge.client, nyx_bridge.server\n"
         "loaded = [m for m in sys.modules if m == 'nyx' or m.startswith('nyx.')]\n"
         "assert not loaded, loaded\n"
         "assert 'PySide6' not in [m for m in sys.modules if sys.modules[m]], 'qt'\n"

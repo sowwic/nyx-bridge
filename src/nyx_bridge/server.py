@@ -273,17 +273,14 @@ class BridgeServer:
     never accepts connections. A client has to open with a hello carrying the
     server's token. Requests are then sent to its `ClientSession`.
 
-    Subclass it in a plugin to describe a kind of client, override the class
-    attributes and hooks, and register the class in the plugin's contents.
+    Subclass it to change the class attributes and hooks.
 
     Attributes:
-        TYPE_ID: server type id, what plugins register the class under
         DEFAULT_PORT: first port tried when no port is requested
         PORT_FALLBACK_COUNT: number of ports tried from the default one
         HANDSHAKE_TIMEOUT: seconds a new connection has to send its hello
     """
 
-    TYPE_ID = ""
     DEFAULT_PORT = protocol.DEFAULT_PORT
     PORT_FALLBACK_COUNT = 20
     HANDSHAKE_TIMEOUT = 5.0
@@ -299,7 +296,7 @@ class BridgeServer:
         """Initialize BridgeServer.
 
         Args:
-            name (str | None): server name, the type id if omitted.
+            name (str | None): server name, the class name if omitted.
             host (str): interface to listen on. Keep it local: clients can have code
                 run on them by whoever holds the token.
             port (int | None): port to listen on. None tries `DEFAULT_PORT` and the
@@ -311,7 +308,7 @@ class BridgeServer:
                 stops.
         """
         self.address_file = address_file
-        self.name = name or self.TYPE_ID or type(self).__name__
+        self.name = name or type(self).__name__
         self.host = host
         self.token = token or secrets.token_urlsafe(16)
         self._requested_port = port
@@ -336,11 +333,6 @@ class BridgeServer:
     def __exit__(self, *exc_info) -> None:
         """Stop the server."""
         self.stop()
-
-    @classmethod
-    def get_type_id(cls) -> str:
-        """str: server type id, plugins register the class under it."""
-        return cls.TYPE_ID
 
     @property
     def port(self) -> int | None:
