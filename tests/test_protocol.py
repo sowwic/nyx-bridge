@@ -144,6 +144,8 @@ def test_find_server_address_prefers_arguments_then_environment(monkeypatch, tmp
         protocol.ADDRESS_FILE_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
+    default_file = tmp_path / "default" / protocol.DEFAULT_ADDRESS_FILE_NAME
+    monkeypatch.setattr(protocol, "default_address_file_path", lambda: default_file)
     assert protocol.find_server_address() is None
 
     address_file = tmp_path / "address.json"
@@ -161,6 +163,49 @@ def test_find_server_address_prefers_arguments_then_environment(monkeypatch, tmp
         5003,
         "arg",
     )
+
+
+def test_find_server_address_falls_back_to_the_default_address_file(
+    monkeypatch, tmp_path
+):
+    for name in (
+        protocol.ADDRESS_ENV_VAR,
+        protocol.TOKEN_ENV_VAR,
+        protocol.ADDRESS_FILE_ENV_VAR,
+    ):
+        monkeypatch.delenv(name, raising=False)
+    default_file = tmp_path / protocol.DEFAULT_ADDRESS_FILE_NAME
+    monkeypatch.setattr(protocol, "default_address_file_path", lambda: default_file)
+    protocol.write_address_file(default_file, "127.0.0.1", 5004, "default-token")
+    assert protocol.find_server_address() == ("127.0.0.1", 5004, "default-token")
+
+    explicit = tmp_path / "explicit.json"
+    protocol.write_address_file(explicit, "127.0.0.1", 5005, "explicit-token")
+    monkeypatch.setenv(protocol.ADDRESS_FILE_ENV_VAR, str(explicit))
+    assert protocol.find_server_address().port == 5005
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected_parts"),
+    [
+        ("darwin", ("Library", "Application Support", "nyx")),
+        ("win32", ("sowwic", "nyx")),
+        ("linux", ("nyx",)),
+    ],
+)
+def test_default_address_file_path_is_in_the_user_data_folder(
+    monkeypatch, tmp_path, platform, expected_parts
+):
+    monkeypatch.setattr(protocol.sys, "platform", platform)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(protocol.pathlib.Path, "home", lambda: tmp_path)
+
+    path = protocol.default_address_file_path()
+
+    assert path.name == protocol.DEFAULT_ADDRESS_FILE_NAME
+    assert path.parent.parts[-len(expected_parts) :] == expected_parts
+    assert tmp_path in path.parents
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda path: path.name)

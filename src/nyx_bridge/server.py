@@ -13,6 +13,7 @@ import hmac
 import itertools
 import logging
 import os
+import pathlib
 import secrets
 import socket
 import threading
@@ -293,6 +294,7 @@ class BridgeServer:
         host: str = protocol.DEFAULT_HOST,
         port: int | None = None,
         token: str | None = None,
+        address_file: str | os.PathLike | None = None,
     ) -> None:
         """Initialize BridgeServer.
 
@@ -304,7 +306,11 @@ class BridgeServer:
                 ports after it, 0 lets the system choose, anything else is used as is.
             token (str | None): shared secret clients have to present, random if
                 omitted.
+            address_file (str | os.PathLike | None): file that tells clients where
+                the server is. Written when the server starts and removed when it
+                stops.
         """
+        self.address_file = address_file
         self.name = name or self.TYPE_ID or type(self).__name__
         self.host = host
         self.token = token or secrets.token_urlsafe(16)
@@ -386,6 +392,8 @@ class BridgeServer:
             target=self._accept_loop, name=f"BridgeServer-{self.name}", daemon=True
         )
         self._accept_thread.start()
+        if self.address_file is not None:
+            self._write_own_address_file()
         LOGGER.info(
             "Bridge server %s listening on %s:%s", self.name, self.host, self.port
         )
@@ -404,6 +412,8 @@ class BridgeServer:
             session.close()
         with self._condition:
             self._condition.notify_all()
+        if self.address_file is not None:
+            self._remove_own_address_file()
         LOGGER.info("Bridge server %s stopped", self.name)
 
     def write_address_file(self, path: str | os.PathLike) -> None:
@@ -413,6 +423,24 @@ class BridgeServer:
             path (str | os.PathLike): file to write.
         """
         protocol.write_address_file(path, self.host, self.port, self.token)
+
+    def _write_own_address_file(self) -> None:
+        """Write `address_file`, a failure is logged and does not stop the server."""
+        try:
+            path = pathlib.Path(self.address_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.write_address_file(path)
+        except OSError:
+            LOGGER.warning("Could not write address file %s", self.address_file)
+
+    def _remove_own_address_file(self) -> None:
+        """Remove `address_file` unless another server has taken it over."""
+        try:
+            found = protocol.read_address_file(self.address_file)
+            if (found.port, found.token) == (self._port, self.token):
+                os.remove(self.address_file)
+        except (OSError, ValueError, KeyError):
+            pass
 
     # Clients
     def find_clients(

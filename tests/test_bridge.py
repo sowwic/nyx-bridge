@@ -583,3 +583,37 @@ def test_address_file_lets_a_client_find_the_server(server, tmp_path, monkeypatc
         assert server.wait_for_client(name="from-file", timeout=WAIT)
     finally:
         client.stop()
+
+
+def test_address_file_is_written_on_start_and_removed_on_stop(tmp_path):
+    address_file = tmp_path / "nested" / "bridge.json"
+
+    with BridgeServer(name="test", port=0, address_file=address_file) as running:
+        found = protocol.read_address_file(address_file)
+        assert (found.host, found.port, found.token) == (
+            running.host,
+            running.port,
+            running.token,
+        )
+
+    assert not address_file.exists()
+
+
+def test_stopping_a_server_leaves_an_address_file_that_another_took_over(tmp_path):
+    address_file = tmp_path / "bridge.json"
+    first = BridgeServer(name="first", port=0, address_file=address_file)
+    first.start()
+    try:
+        protocol.write_address_file(address_file, "127.0.0.1", 1, "other-token")
+    finally:
+        first.stop()
+
+    assert protocol.read_address_file(address_file).token == "other-token"
+
+
+def test_unwritable_address_file_does_not_stop_the_server(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a folder")
+
+    with BridgeServer(name="test", port=0, address_file=blocker / "bridge.json") as s:
+        assert s.is_running
