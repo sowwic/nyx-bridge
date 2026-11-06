@@ -464,29 +464,79 @@ def test_validate_client_hook_can_refuse_clients():
             accepted.stop()
 
 
-def test_connect_and_disconnect_hooks_are_called_and_may_fail():
-    events = []
+class Recorder:
+    def __init__(self):
+        self.events = []
 
-    class HookedServer(BridgeServer):
-        def on_client_connected(self, session):
-            events.append(("connected", session.name))
-            raise RuntimeError("hook failure must not break the connection")
+    def on_server_started(self, server):
+        self.events.append(("started", server.port))
 
-        def on_client_disconnected(self, session):
-            events.append(("disconnected", session.name))
+    def on_server_stopped(self, server):
+        self.events.append(("stopped",))
 
-    with HookedServer(port=0) as hooked:
-        client = NyxClient(
-            name="h", address=("127.0.0.1", hooked.port), token=hooked.token
-        )
-        client.connect()
-        session = hooked.wait_for_client(name="h", timeout=WAIT)
-        session.close()
+    def on_client_connected(self, server, session):
+        self.events.append(("connected", session.name))
 
-        wait_until(lambda: len(events) >= 2)
-        client.stop()
+    def on_client_disconnected(self, server, session):
+        self.events.append(("disconnected", session.name))
 
-    assert events == [("connected", "h"), ("disconnected", "h")]
+
+def connect_and_close(server, name):
+    client = NyxClient(name=name, address=("127.0.0.1", server.port), token=server.token)
+    client.connect()
+    server.wait_for_client(name=name, timeout=WAIT).close()
+    client.stop()
+
+
+def test_listeners_hear_about_the_server_and_its_clients_in_order():
+    recorder = Recorder()
+    listening = BridgeServer(port=0)
+    listening.add_listener(recorder)
+    listening.start()
+    port = listening.port
+    connect_and_close(listening, "h")
+    wait_until(lambda: len(recorder.events) >= 3)
+    listening.stop()
+
+    assert recorder.events == [
+        ("started", port),
+        ("connected", "h"),
+        ("disconnected", "h"),
+        ("stopped",),
+    ]
+
+
+def test_removed_and_repeated_listeners_are_handled(server):
+    recorder = Recorder()
+    server.add_listener(recorder)
+    server.add_listener(recorder)
+    server.remove_listener(recorder)
+    server.remove_listener(recorder)
+
+    connect_and_close(server, "quiet")
+
+    assert recorder.events == []
+
+
+def test_listener_without_methods_or_failing_does_not_break_the_server():
+    recorder = Recorder()
+
+    class Failing:
+        def on_client_connected(self, server, session):
+            raise RuntimeError("listener failure must not break the connection")
+
+    with BridgeServer(port=0) as listening:
+        listening.add_listener(object())
+        listening.add_listener(Failing())
+        listening.add_listener(recorder)
+        connect_and_close(listening, "h")
+        wait_until(lambda: len(recorder.events) >= 2)
+
+    assert [event[0] for event in recorder.events] == [
+        "connected",
+        "disconnected",
+        "stopped",
+    ]
 
 
 def test_wait_for_client_times_out(server):
