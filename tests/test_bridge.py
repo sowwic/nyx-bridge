@@ -464,29 +464,79 @@ def test_validate_client_hook_can_refuse_clients():
             accepted.stop()
 
 
-def test_connect_and_disconnect_hooks_are_called_and_may_fail():
-    events = []
+class Recorder:
+    def __init__(self):
+        self.events = []
 
-    class HookedServer(BridgeServer):
-        def on_client_connected(self, session):
-            events.append(("connected", session.name))
-            raise RuntimeError("hook failure must not break the connection")
+    def on_server_started(self, server):
+        self.events.append(("started", server.port))
 
-        def on_client_disconnected(self, session):
-            events.append(("disconnected", session.name))
+    def on_server_stopped(self, server):
+        self.events.append(("stopped",))
 
-    with HookedServer(port=0) as hooked:
-        client = NyxClient(
-            name="h", address=("127.0.0.1", hooked.port), token=hooked.token
-        )
-        client.connect()
-        session = hooked.wait_for_client(name="h", timeout=WAIT)
-        session.close()
+    def on_client_connected(self, server, session):
+        self.events.append(("connected", session.name))
 
-        wait_until(lambda: len(events) >= 2)
-        client.stop()
+    def on_client_disconnected(self, server, session):
+        self.events.append(("disconnected", session.name))
 
-    assert events == [("connected", "h"), ("disconnected", "h")]
+
+def connect_and_close(server, name):
+    client = NyxClient(name=name, address=("127.0.0.1", server.port), token=server.token)
+    client.connect()
+    server.wait_for_client(name=name, timeout=WAIT).close()
+    client.stop()
+
+
+def test_listeners_hear_about_the_server_and_its_clients_in_order():
+    recorder = Recorder()
+    listening = BridgeServer(port=0)
+    listening.add_listener(recorder)
+    listening.start()
+    port = listening.port
+    connect_and_close(listening, "h")
+    wait_until(lambda: len(recorder.events) >= 3)
+    listening.stop()
+
+    assert recorder.events == [
+        ("started", port),
+        ("connected", "h"),
+        ("disconnected", "h"),
+        ("stopped",),
+    ]
+
+
+def test_removed_and_repeated_listeners_are_handled(server):
+    recorder = Recorder()
+    server.add_listener(recorder)
+    server.add_listener(recorder)
+    server.remove_listener(recorder)
+    server.remove_listener(recorder)
+
+    connect_and_close(server, "quiet")
+
+    assert recorder.events == []
+
+
+def test_listener_without_methods_or_failing_does_not_break_the_server():
+    recorder = Recorder()
+
+    class Failing:
+        def on_client_connected(self, server, session):
+            raise RuntimeError("listener failure must not break the connection")
+
+    with BridgeServer(port=0) as listening:
+        listening.add_listener(object())
+        listening.add_listener(Failing())
+        listening.add_listener(recorder)
+        connect_and_close(listening, "h")
+        wait_until(lambda: len(recorder.events) >= 2)
+
+    assert [event[0] for event in recorder.events] == [
+        "connected",
+        "disconnected",
+        "stopped",
+    ]
 
 
 def test_wait_for_client_times_out(server):
@@ -583,3 +633,37 @@ def test_address_file_lets_a_client_find_the_server(server, tmp_path, monkeypatc
         assert server.wait_for_client(name="from-file", timeout=WAIT)
     finally:
         client.stop()
+
+
+def test_address_file_is_written_on_start_and_removed_on_stop(tmp_path):
+    address_file = tmp_path / "nested" / "bridge.json"
+
+    with BridgeServer(name="test", port=0, address_file=address_file) as running:
+        found = protocol.read_address_file(address_file)
+        assert (found.host, found.port, found.token) == (
+            running.host,
+            running.port,
+            running.token,
+        )
+
+    assert not address_file.exists()
+
+
+def test_stopping_a_server_leaves_an_address_file_that_another_took_over(tmp_path):
+    address_file = tmp_path / "bridge.json"
+    first = BridgeServer(name="first", port=0, address_file=address_file)
+    first.start()
+    try:
+        protocol.write_address_file(address_file, "127.0.0.1", 1, "other-token")
+    finally:
+        first.stop()
+
+    assert protocol.read_address_file(address_file).token == "other-token"
+
+
+def test_unwritable_address_file_does_not_stop_the_server(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a folder")
+
+    with BridgeServer(name="test", port=0, address_file=blocker / "bridge.json") as s:
+        assert s.is_running

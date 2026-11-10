@@ -13,6 +13,7 @@ import hmac
 import itertools
 import logging
 import os
+import pathlib
 import secrets
 import socket
 import threading
@@ -272,17 +273,15 @@ class BridgeServer:
     never accepts connections. A client has to open with a hello carrying the
     server's token. Requests are then sent to its `ClientSession`.
 
-    Subclass it in a plugin to describe a kind of client, override the class
-    attributes and hooks, and register the class in the plugin's contents.
+    Subclass it to change the class attributes and `validate_client`. To follow what
+    happens to the server, add a listener, see `add_listener`.
 
     Attributes:
-        TYPE_ID: server type id, what plugins register the class under
         DEFAULT_PORT: first port tried when no port is requested
         PORT_FALLBACK_COUNT: number of ports tried from the default one
         HANDSHAKE_TIMEOUT: seconds a new connection has to send its hello
     """
 
-    TYPE_ID = ""
     DEFAULT_PORT = protocol.DEFAULT_PORT
     PORT_FALLBACK_COUNT = 20
     HANDSHAKE_TIMEOUT = 5.0
@@ -293,19 +292,24 @@ class BridgeServer:
         host: str = protocol.DEFAULT_HOST,
         port: int | None = None,
         token: str | None = None,
+        address_file: str | os.PathLike | None = None,
     ) -> None:
         """Initialize BridgeServer.
 
         Args:
-            name (str | None): server name, the type id if omitted.
+            name (str | None): server name, the class name if omitted.
             host (str): interface to listen on. Keep it local: clients can have code
                 run on them by whoever holds the token.
             port (int | None): port to listen on. None tries `DEFAULT_PORT` and the
                 ports after it, 0 lets the system choose, anything else is used as is.
             token (str | None): shared secret clients have to present, random if
                 omitted.
+            address_file (str | os.PathLike | None): file that tells clients where
+                the server is. Written when the server starts and removed when it
+                stops.
         """
-        self.name = name or self.TYPE_ID or type(self).__name__
+        self.address_file = address_file
+        self.name = name or type(self).__name__
         self.host = host
         self.token = token or secrets.token_urlsafe(16)
         self._requested_port = port
@@ -314,6 +318,7 @@ class BridgeServer:
         self._stop_event = threading.Event()
         self._clients: list[ClientSession] = []
         self._condition = threading.Condition()
+        self._listeners: list[typing.Any] = []
         self._port = port
         if host not in ("127.0.0.1", "localhost", "::1"):
             LOGGER.warning("Bridge server %s is listening on %s", self.name, host)
@@ -330,11 +335,6 @@ class BridgeServer:
     def __exit__(self, *exc_info) -> None:
         """Stop the server."""
         self.stop()
-
-    @classmethod
-    def get_type_id(cls) -> str:
-        """str: server type id, plugins register the class under it."""
-        return cls.TYPE_ID
 
     @property
     def port(self) -> int | None:
@@ -364,11 +364,48 @@ class BridgeServer:
         """
         return None
 
-    def on_client_connected(self, session: ClientSession) -> None:
-        """Called when a client has connected. Override in subclasses."""
+    # Listeners
+    def add_listener(self, listener: typing.Any) -> None:
+        """Get told about what happens to the server.
 
-    def on_client_disconnected(self, session: ClientSession) -> None:
-        """Called when a client has gone. Override in subclasses."""
+        A listener is any object with some of these methods, the others are skipped:
+        `on_server_started(server)`, `on_server_stopped(server)`,
+        `on_client_connected(server, session)` and
+        `on_client_disconnected(server, session)`.
+
+        They are called on the threads of the server, not on the one that added the
+        listener, so they have to be quick and thread safe. A failing listener is
+        logged and does not affect the server or the other listeners.
+
+        Args:
+            listener (Any): object to call, ignored if it is already added.
+        """
+        with self._condition:
+            if listener not in self._listeners:
+                self._listeners.append(listener)
+
+    def remove_listener(self, listener: typing.Any) -> None:
+        """Stop telling a listener about the server.
+
+        Args:
+            listener (Any): listener to remove, ignored if it is not added.
+        """
+        with self._condition:
+            if listener in self._listeners:
+                self._listeners.remove(listener)
+
+    def _notify(self, event: str, *args: typing.Any) -> None:
+        """Call `event` on every listener having it, outside of the server lock."""
+        with self._condition:
+            listeners = list(self._listeners)
+        for listener in listeners:
+            callback = getattr(listener, event, None)
+            if callback is None:
+                continue
+            try:
+                callback(self, *args)
+            except Exception:
+                LOGGER.exception("Bridge server listener %s failed", event)
 
     # Lifecycle
     def start(self) -> None:
@@ -386,9 +423,12 @@ class BridgeServer:
             target=self._accept_loop, name=f"BridgeServer-{self.name}", daemon=True
         )
         self._accept_thread.start()
+        if self.address_file is not None:
+            self._write_own_address_file()
         LOGGER.info(
             "Bridge server %s listening on %s:%s", self.name, self.host, self.port
         )
+        self._notify("on_server_started")
 
     def stop(self) -> None:
         """Stop listening and disconnect every client."""
@@ -404,7 +444,10 @@ class BridgeServer:
             session.close()
         with self._condition:
             self._condition.notify_all()
+        if self.address_file is not None:
+            self._remove_own_address_file()
         LOGGER.info("Bridge server %s stopped", self.name)
+        self._notify("on_server_stopped")
 
     def write_address_file(self, path: str | os.PathLike) -> None:
         """Write where this server listens, see `protocol.write_address_file`.
@@ -413,6 +456,24 @@ class BridgeServer:
             path (str | os.PathLike): file to write.
         """
         protocol.write_address_file(path, self.host, self.port, self.token)
+
+    def _write_own_address_file(self) -> None:
+        """Write `address_file`, a failure is logged and does not stop the server."""
+        try:
+            path = pathlib.Path(self.address_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.write_address_file(path)
+        except OSError:
+            LOGGER.warning("Could not write address file %s", self.address_file)
+
+    def _remove_own_address_file(self) -> None:
+        """Remove `address_file` unless another server has taken it over."""
+        try:
+            found = protocol.read_address_file(self.address_file)
+            if (found.port, found.token) == (self._port, self.token):
+                os.remove(self.address_file)
+        except (OSError, ValueError, KeyError):
+            pass
 
     # Clients
     def find_clients(
@@ -612,7 +673,7 @@ class BridgeServer:
             self._clients.append(session)
             self._condition.notify_all()
         LOGGER.info("%s connected to %s", session, self.name)
-        self._call_hook(self.on_client_connected, session)
+        self._notify("on_client_connected", session)
 
     def _remove_client(self, session: ClientSession) -> None:
         """Forget a client whose connection ended."""
@@ -620,12 +681,4 @@ class BridgeServer:
             if session in self._clients:
                 self._clients.remove(session)
             self._condition.notify_all()
-        self._call_hook(self.on_client_disconnected, session)
-
-    @staticmethod
-    def _call_hook(hook: typing.Callable, session: ClientSession) -> None:
-        """Call a subclass hook, a failing hook must not break the connection."""
-        try:
-            hook(session)
-        except Exception:
-            LOGGER.exception("Bridge server hook %s failed", hook.__name__)
+        self._notify("on_client_disconnected", session)

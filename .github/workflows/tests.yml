@@ -1,0 +1,10 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  tests:
+    uses: sowwic/gh-workflows/.github/workflows/python-tests.yml@v1

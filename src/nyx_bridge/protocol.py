@@ -12,8 +12,10 @@ from __future__ import annotations
 import collections
 import json
 import os
+import pathlib
 import socket
 import struct
+import sys
 import typing
 
 PROTOCOL_VERSION = 1
@@ -24,6 +26,7 @@ MAX_MESSAGE_SIZE = 64 * 1024 * 1024
 ADDRESS_ENV_VAR = "NYX_BRIDGE_ADDRESS"
 TOKEN_ENV_VAR = "NYX_BRIDGE_TOKEN"
 ADDRESS_FILE_ENV_VAR = "NYX_BRIDGE_ADDRESS_FILE"
+DEFAULT_ADDRESS_FILE_NAME = "bridge.json"
 
 EXEC = "exec"
 EVAL = "eval"
@@ -311,13 +314,34 @@ def read_address_file(path: str | os.PathLike) -> Address:
     return Address(data["host"], int(data["port"]), data.get("token", ""))
 
 
+def default_address_file_path() -> pathlib.Path:
+    """Where Nyx writes its address file unless told otherwise.
+
+    The folder is the per-user data folder of the Nyx application, so a client on
+    the same machine finds a running Nyx without any configuration.
+
+    Returns:
+        pathlib.Path: path of the file, which may not exist.
+    """
+    if sys.platform == "darwin":
+        base = pathlib.Path.home() / "Library" / "Application Support" / "nyx"
+    elif sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA") or pathlib.Path.home() / "AppData/Local"
+        base = pathlib.Path(local) / "sowwic" / "nyx"
+    else:
+        data = os.environ.get("XDG_DATA_HOME") or pathlib.Path.home() / ".local/share"
+        base = pathlib.Path(data) / "nyx"
+    return base / DEFAULT_ADDRESS_FILE_NAME
+
+
 def find_server_address(
     address: str | tuple[str, int] | None = None, token: str | None = None
 ) -> Address | None:
     """Work out where the server is.
 
     Looked up in order: the arguments, `NYX_BRIDGE_ADDRESS` (`host:port`) with
-    `NYX_BRIDGE_TOKEN`, then the file named by `NYX_BRIDGE_ADDRESS_FILE`.
+    `NYX_BRIDGE_TOKEN`, then the file named by `NYX_BRIDGE_ADDRESS_FILE`, then the
+    default address file of a running Nyx (see `default_address_file_path`).
 
     Args:
         address (str | tuple[str, int] | None): `host:port` or (host, port).
@@ -337,8 +361,9 @@ def find_server_address(
             token = os.environ.get(TOKEN_ENV_VAR, "")
         return Address(host, int(port), token)
 
-    address_file = os.environ.get(ADDRESS_FILE_ENV_VAR)
-    if address_file and os.path.isfile(address_file):
-        found = read_address_file(address_file)
-        return found if token is None else found._replace(token=token)
+    candidates = [os.environ.get(ADDRESS_FILE_ENV_VAR), default_address_file_path()]
+    for address_file in candidates:
+        if address_file and os.path.isfile(address_file):
+            found = read_address_file(address_file)
+            return found if token is None else found._replace(token=token)
     return None
