@@ -1,6 +1,6 @@
 [project]
 name = "nyx-bridge"
-version = "0.0.1"
+version = "1.0.0"
 description = "TCP bridge between Nyx and external processes (Blender, Maya, any Python)"
 authors = [
     {name = "sowwic",email = "47799401+sowwic@users.noreply.github.com"}
