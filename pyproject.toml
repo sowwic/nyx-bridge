@@ -1,5 +1,5 @@
 [project]
-name = "nyx-bridge"
+name = "sowwic-nyx-bridge"
 version = "1.0.0"
 description = "TCP bridge between Nyx and external processes (Blender, Maya, any Python)"
 authors = [
@@ -9,6 +9,22 @@ license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+keywords = ["nyx", "bridge", "tcp", "remote execution", "dcc", "maya", "blender"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/sowwic/nyx-bridge"
+Documentation = "https://sowwic.github.io/nyx-bridge/"
+Issues = "https://github.com/sowwic/nyx-bridge/issues"
+Changelog = "https://github.com/sowwic/nyx-bridge/blob/main/CHANGELOG.rst"
+
+[tool.uv.build-backend]
+module-name = "nyx_bridge"
 
 [build-system]
 requires = ["uv_build>=0.10.6"]
